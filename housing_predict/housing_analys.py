@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.svm import SVR
 
 from sklearn.preprocessing import Imputer
 
@@ -15,6 +16,9 @@ HOUSING_URL = DOWNLOAD_ROOT+HOUSING_PATH+"/housing.tgz"
 
 
 def fetch_housing_data(house_url=HOUSING_URL,housing_path=HOUSING_PATH):
+    """
+        获取数据
+    """
     if not os.path.isdir(housing_path):
         os.makedirs(housing_path)
     tgz_path = os.path.join(housing_path,"housing.tgz")
@@ -26,79 +30,55 @@ def fetch_housing_data(house_url=HOUSING_URL,housing_path=HOUSING_PATH):
 
 def load_housing_data(housing_path=HOUSING_PATH):
     """
-        return DataFrame Pandas Obj
+        使用pandas加载数据
     """
     csv_path = os.path.join(housing_path,"housing.csv")
     return pd.read_csv(csv_path)
 
 
-def split_train_test(data,test_ratio):
-    """
-    创建测试集,但是要求数据集永远不变
-    且该方法每运行一次,测试集就会随机生成一次
-    :param data:
-    :param test_ratio:
-    :return:
-    """
-    shuffled_indices = np.random.permutation(len(data))
-    test_set_size = int(len(data)*test_ratio)
-    test_indices = shuffled_indices[:test_set_size]
-    train_indices = shuffled_indices[test_set_size:]
-    return data.iloc[train_indices],data.iloc[test_indices]
+"""
+    目标：使用已有的普查数据建立房价模型,预测任何街区的房价中位数
+    使用数据：加州1990年普查数据(经纬度、房龄中位数、总房间数、总卧室数、人口数、户数、收入中位数、房价中位数、离海岸距离)
+    
+    分析：有标签的样本——房价中位数——>监督学习,需要预测值——>回归任务(不需要预测值则不需要回归,只需要分类)
+          没有连续数据进入系统,不需要快速适应,数据量不大可以放进内存,使用批量学习
+
+    性能指标：回归任务经典指标
+            RMSE(均方根误差)——测量系统预测误差的标准差,通常符合高斯分布(68-95-99.7,σ就是RMSE,68%在1σ,95%在2σ,99.7%在3σ)
+                公式：RMSE(X,h) x是所有特征值的向量(不包含标签),y是标签(即输出值),X包含是数据集中所有实例的特征值,每一行都是一个实例的特征值的转置(列转行,每个特征一列)
+                      h是预测函数,y = h(x)
+            
+            MAE(平均绝对偏差)——异常值较多时,使用该值更好
+
+            测量预测值和目标值两个向量距离的方法/范数：RMSE——欧几里得范数,MAE——曼哈顿范数,K阶闵氏范数(0阶为汉明范数,高阶为切比雪夫范数)
+            范数的指数越高,就越关注大的值而忽略小的值
+
+    确认需要的是实际的值,而不是将值分类(回归任务变成分类任务)
+"""
 
 
-if __name__ == "__main__":
-    # fetch_housing_data()
-    housing = load_housing_data(HOUSING_PATH)
-    # view top 5 rows
-    # print(housing.head())
-    # column values range
-    # print(housing["ocean_proximity"].value_counts())
-    # every column describe
-    # print(housing.describe())
-    # 纯随机取样
-    # housing_train, housing_test = train_test_split(housing, test_size=0.2, random_state=42)
-    # 分层采样
-    housing["income_cate"] = np.ceil(housing["median_income"]/1.5)
-    housing["income_cate"].where(housing["income_cate"] < 5, 5.0, inplace=True)
+"""
+    pandas 数据统计包,需要数据pandas的使用
+    read_csv() 读取数据文件,返回DataFrame对象
+    DataFrame对象：
+        head()方法——数据集的前五行
+        info()方法——查看数据描述,总行数、每个属性的类型、非空值数量.etc
+        describe()方法——数值属性的概括(数量,均值,标准差,最小值,最大值,)
+        loc(index)方法——选中index行
+    DataFrame[key]返回对应项的数据集
+        values_counts()方法——统计该项有哪些类别,每个类别有多少数量
 
-    split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+    柱状图有利于快速了解数据类型和分布
 
-    for train_index, test_index in split.split(housing,housing["income_cate"]):
-        strat_train_set = housing.loc[train_index]
-        strat_test_set = housing.loc[test_index]
+    特征值预处理(放大/缩放,上下限),但是要注意预测值(标签)的上下限是否符合要求：
+        对于作了限制的标签可以选择重新收集合适的标签,或是从训练集移除
 
-    for s in (strat_train_set,strat_test_set):
-        s.drop(["income_cate"], axis=1, inplace=True)
+    柱状图的分布比较靠某一边,需要对数据做一些变换使其更符合正态分布
+"""
 
-    # 创建探索集,使用复制,避免损伤训练集
-    housing_discovery = strat_train_set.copy()
-
-    housing_discovery.plot(kind="scatter", x="longitude", y="latitude",alpha=0.1)
-
-    housing["rooms_per_household"] = housing["total_rooms"]/housing["households"]
-    housing["bedrooms_per_room"] = housing["total_bedrooms"] / housing["total_rooms"]
-    housing["population_per_household"] = housing["population"] / housing["households"]
-
-    housing_backup = strat_train_set.drop("median_house_value", axis=1)
-
-    housing_labels = strat_train_set["median_house_value"].copy()
-
-    # # 数据清洗
-    # housing_backup.dropna(subset=["total_bedrooms"])  # 该属性有数据缺失, 直接去掉对应的街区(记录)
-    #
-    # housing_backup.drop("total_bedrooms", axis=1)  # 去掉该属性
-    #
-    # median = housing_backup["total_bedrooms"].median()  # 取中位数
-    # housing_backup["total_bedrooms"].fillna(median)  # 填充缺失数据
-
-    # 处理缺失值的简单方法, 策略是中位数
-    imputer = Imputer(strategy="median")
-    # 中位数只能处理数值,因为要去掉文本属性
-    housing_num = housing.drop("ocean_proximity", axis=1)
-
-    imputer.fit(housing_num)
-
-    X = imputer.transform(housing_num)
-
-    housing_tr = pd.DataFrame(X, columns=housing_num.columns)
+"""
+    数据拆分成训练集和测试集,训练集还可以继续拆分成训练集和验证集(多个训练集和验证集交叉验证)
+"""
+fetch_housing_data(HOUSING_URL,HOUSING_PATH)
+data = load_housing_data(HOUSING_PATH)
+print(data)
