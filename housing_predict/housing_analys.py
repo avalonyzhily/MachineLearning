@@ -2,14 +2,8 @@ import os
 import tarfile
 from six.moves import urllib
 import pandas as pd
-from pandas.plotting import scatter_matrix
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import StratifiedShuffleSplit
-from sklearn.svm import SVR
-from sklearn.preprocessing import Imputer
-
 
 DOWNLOAD_ROOT = "https://raw.githubusercontent.com/ageron/handson-ml/master/"
 HOUSING_PATH = "datasets/housing/"
@@ -24,7 +18,7 @@ def fetch_housing_data(house_url=HOUSING_URL,housing_path=HOUSING_PATH):
         os.makedirs(housing_path)
     tgz_path = os.path.join(housing_path,"housing.tgz")
     urllib.request.urlretrieve(house_url,tgz_path)
-    housing_tgz =  tarfile.open(tgz_path)
+    housing_tgz = tarfile.open(tgz_path)
     housing_tgz.extractall(path=housing_path)
     housing_tgz.close()
 
@@ -35,8 +29,10 @@ def load_housing_data(housing_path=HOUSING_PATH):
     """
     csv_path = os.path.join(housing_path,"housing.csv")
     return pd.read_csv(csv_path)
+
+
 # 获取数据csv
-fetch_housing_data(HOUSING_URL,HOUSING_PATH)
+# fetch_housing_data(HOUSING_URL,HOUSING_PATH)
 # 加载数据得到DataFrame
 housing = load_housing_data(HOUSING_PATH)
 
@@ -74,7 +70,9 @@ housing = load_housing_data(HOUSING_PATH)
         corr()方法——查看每对属性的标准相关系数(结果是一个属性两两成对矩阵)
     DataFrame[key]返回对应项的数据集
         values_counts()方法——统计该项有哪些类别,每个类别有多少数量
-    
+    Imputer: sklearn提供的一个估计器,可以使用不同的策略处理缺失值(本例中用于计算中位数)
+    LabelEncoder: 对于文本属性做处理的转换器
+    OneHotEncoder: sklearn提供的独热编码器,将整数分类值处理为独热向量,入参需要2维的数组
     柱状图有利于快速了解数据类型和分布
 
     特征值预处理(放大/缩放,上下限),但是要注意预测值(标签)的上下限是否符合要求：
@@ -95,6 +93,10 @@ housing = load_housing_data(HOUSING_PATH)
 housing["income_cat"] = np.ceil(housing["median_income"]/1.5) #收入中位数离散化
 housing["income_cat"].where(housing["income_cat"] < 5,5.0,inplace=True) #分类
 
+# 直接按比例随机分离训练集和测试集的类,相对简单但是数据代表性会差一些,本例不使用
+# from sklearn.model_selection import train_test_split
+# 分层采样随机分离训练集和测试集的类
+from sklearn.model_selection import StratifiedShuffleSplit
 split = StratifiedShuffleSplit(n_splits=1,test_size=0.2,random_state=42)
 
 for train_index, test_index in split.split(housing,housing["income_cat"]):
@@ -128,6 +130,8 @@ housing_copy = strat_train_set.copy()
 """
     查找关联性,通过corr()方法来获得属性之间的相关系数,相关系数是线性的关系
 """
+# pandas提供的方便的数据透视的类
+from pandas.plotting import scatter_matrix
 # corr_matrix = housing_copy.corr()
 
 # 查看每个属性与房价中位数的相关系数
@@ -177,7 +181,7 @@ housing_copy = strat_train_set.copy()
     对预测量和标签应用不同的转换
 """
 # inplace 默认false,返回操作后的新DataFrame不影响原来的
-housing_copy_new = strat_train_set.drop("median_house_value",axis=1)
+housing_copy_new = strat_train_set.drop("median_house_value", axis=1)
 # 复制房价中位数的副本
 housing_labels = strat_train_set["median_house_value"].copy()
 
@@ -189,3 +193,46 @@ housing_labels = strat_train_set["median_house_value"].copy()
     2. 去掉整个属性(去列) drop()
     3. 进行赋值(0、均值、中位数等有代表性的值) fillna()
 """
+
+"""
+    本例中选择3,而中位数比较合适,因此要计算中位数,最好保存该中位数,这样在后续的测试集也可以用该中位数来填充缺失值
+    使用sklearn提供的Imputer类来简单的获取中位数
+"""
+from sklearn.impute import SimpleImputer
+
+simpleImputer = SimpleImputer(strategy="median")
+
+"""
+    中位数处理策略只能针对数值型的列,因此需要对文本类的列做处理
+    比如创建副本
+"""
+housing_copy_new_num = housing_copy_new.drop("ocean_proximity", axis=1)
+
+# 使用估计器的fit()方法来处理数据
+simpleImputer.fit(housing_copy_new_num)
+# "训练过的imputer"来对训练集进行转换
+X = simpleImputer.transform(housing_copy_new_num)
+# 得到的结果放回原来的Pandas的dataFrame
+housing_copy_new_tr = pd.DataFrame(X, columns=housing_copy_new_num.columns)
+
+"""
+    sklearn也提供了处理文本属性的转换器
+    多列文本特征推荐使用pandas的factorize()方法?这里不是很明了,对api不熟悉
+"""
+from sklearn.preprocessing import LabelEncoder
+
+encoder = LabelEncoder()
+housing_ocean_cat = housing_copy_new["ocean_proximity"]
+housing_ocean_cat_encoded = encoder.fit_transform(housing_ocean_cat)
+# housing_ocean_cat_encoded, housing_ocean_cat_categories = housing_ocean_cat.factorize()
+"""
+    这种分类方式存在一个问题,就是分类得到值之间的关系不正确(比如算法会认为临近的值比疏远的值更相似,本例中是不对的)
+    常见的方法给每个分类创建二元属性,譬如独热编码(One-Hot Encoding),只有一个属性为1其他为0
+    使用独热编码器OneHotEncoder,需要将原有的housing_ocean_cat_encoded从1维数组转成2维数组
+"""
+from sklearn.preprocessing import OneHotEncoder
+
+oneHotEncoder = OneHotEncoder()
+# 得到的是SciPy稀疏矩阵(记录不为零的坐标和值)
+housing_ocean_cat_encoded_hot = oneHotEncoder.fit_transform(housing_ocean_cat_encoded.reshape(-1, 1))
+print(housing_ocean_cat_encoded_hot.toarray())
