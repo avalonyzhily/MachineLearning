@@ -223,16 +223,104 @@ from sklearn.preprocessing import LabelEncoder
 
 encoder = LabelEncoder()
 housing_ocean_cat = housing_copy_new["ocean_proximity"]
-housing_ocean_cat_encoded = encoder.fit_transform(housing_ocean_cat)
+# housing_ocean_cat_encoded = encoder.fit_transform(housing_ocean_cat)
 # housing_ocean_cat_encoded, housing_ocean_cat_categories = housing_ocean_cat.factorize()
 """
     这种分类方式存在一个问题,就是分类得到值之间的关系不正确(比如算法会认为临近的值比疏远的值更相似,本例中是不对的)
     常见的方法给每个分类创建二元属性,譬如独热编码(One-Hot Encoding),只有一个属性为1其他为0
     使用独热编码器OneHotEncoder,需要将原有的housing_ocean_cat_encoded从1维数组转成2维数组
 """
-from sklearn.preprocessing import OneHotEncoder
+# from sklearn.preprocessing import OneHotEncoder
+#
+# oneHotEncoder = OneHotEncoder()
+# # 得到的是SciPy稀疏矩阵(记录不为零的坐标和值)
+# housing_ocean_cat_encoded_hot = oneHotEncoder.fit_transform(housing_ocean_cat_encoded.reshape(-1, 1))
 
-oneHotEncoder = OneHotEncoder()
-# 得到的是SciPy稀疏矩阵(记录不为零的坐标和值)
-housing_ocean_cat_encoded_hot = oneHotEncoder.fit_transform(housing_ocean_cat_encoded.reshape(-1, 1))
-print(housing_ocean_cat_encoded_hot.toarray())
+from sklearn.preprocessing import LabelBinarizer
+labelBinarizer = LabelBinarizer(sparse_output=True)
+housing_ocean_cat_hot1 = labelBinarizer.fit_transform(housing_ocean_cat)
+# print(housing_ocean_cat_hot1)
+
+"""
+    除去sklearn提供的转换器,还可以自定义转换器,只需要实现fit(),transform(),fit_transform()方法即可。
+    添加TransformMixin为基类可以得到fit_transform()方法(自动执行fit和transform方法)
+    添加BaseEstimator为基类,能得到额外的get_params()和set_params(),便于对超参数进行微调
+"""
+from sklearn.base import BaseEstimator, TransformerMixin
+rooms_ix, bedrooms_ix, population_ix, household_ix = 3, 4, 5, 6
+
+class CombinedAttributesAdder(BaseEstimator, TransformerMixin):
+    def __init__(self, add_bedrooms_per_room = True): # no *args or **kargs
+        self.add_bedrooms_per_room = add_bedrooms_per_room
+    def fit(self, X, y=None):
+        return self # nothing else to do
+    def transform(self, X, y=None):
+        rooms_per_household = X[:, rooms_ix] / X[:, household_ix]
+        population_per_household = X[:, population_ix] / X[:, household_ix]
+        if self.add_bedrooms_per_room:
+            bedrooms_per_room = X[:, bedrooms_ix] / X[:, rooms_ix]
+            return np.c_[X, rooms_per_household, population_per_household,
+            bedrooms_per_room]
+        else:
+            return np.c_[X, rooms_per_household, population_per_household]
+"""
+    特征缩放,通常不需要缩放,但是属性量度不同时,会影响机器学习的性能
+    特征缩放有两种方式：
+        线性函数归一化：值的范围转换到0到1,通过减去最小值,然后除以最大值最小值的差值,sklearn提供了MinMaxScaler转换器
+        标准化：减去平均值,除以方差,使得到的分布具有方差,sklearn提供了StandardScaler转换器
+        标准化不会限制值的范围(0到1),但是受到异常值的影响较小。
+"""
+
+"""
+    转换器流水线
+    可以很方便的把转换器和估计器(最后一个)组合到一起,调用转换器的fit()方法就会调用转换器的fit_transform()
+    流水线也可以把流水线组合到一起：
+    每个子流水线以一个选择转换器(sklearn没有工具来处理pandas的DataFrame,因此要转化为numpy的数组)开始,针对对应的属性列做预处理
+"""
+
+from sklearn.base import BaseEstimator,TransformerMixin
+
+class DataFrameSelector(BaseEstimator,TransformerMixin):
+    def __init__(self,attribute_names):
+        self.attribute_names = attribute_names
+    
+    def fit(self,X,y=None):
+        return self
+    
+    def transform(self, X):
+        return X[self.attribute_names].values
+
+class MyLabelBinarizer(TransformerMixin):
+    def __init__(self, *args, **kwargs):
+        self.encoder = LabelBinarizer(*args, **kwargs)
+    def fit(self, x, y=0):
+        self.encoder.fit(x)
+        return self
+    def transform(self, x, y=0):
+        return self.encoder.transform(x)
+
+from sklearn.pipeline import FeatureUnion,Pipeline
+from sklearn.preprocessing import StandardScaler
+
+num_attribs = list(housing_copy_new_num)
+cat_attribs = ["ocean_proximity"]
+
+num_pipeline = Pipeline([
+    ('selector',DataFrameSelector(num_attribs)),
+    ('imputer', SimpleImputer(strategy='median')),
+    ('attribs_adder',CombinedAttributesAdder()),
+    ('std_scaler', StandardScaler())
+])
+
+cat_pipeline = Pipeline([
+    ('selector',DataFrameSelector(cat_attribs)),
+    ('label_binarizer',MyLabelBinarizer())
+])
+
+full_pipeline = FeatureUnion(transformer_list = [
+    ('num_pipeline',num_pipeline),
+    ('cat_pipeline',cat_pipeline)
+])
+
+housing_prepared = full_pipeline.fit_transform(housing_copy_new)
+print(housing_prepared)
