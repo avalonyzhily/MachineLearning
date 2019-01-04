@@ -323,4 +323,106 @@ full_pipeline = FeatureUnion(transformer_list = [
 ])
 
 housing_prepared = full_pipeline.fit_transform(housing_copy_new)
-print(housing_prepared)
+# print(housing_prepared)
+
+
+"""
+    前面都是对数据做预处理
+    接下来选择模型sklearn提供很多模型
+    这些模型需要训练
+"""
+
+"""
+    1.线性模型
+    linearRegression
+"""
+from sklearn.linear_model import LinearRegression
+
+# lin_reg = LinearRegression()
+# lin_reg.fit(housing_prepared,housing_labels)
+#
+# some_data = housing_copy_new.iloc[:5]
+# some_labels = housing_labels.iloc[:5]
+#
+# some_data_prepared = full_pipeline.transform(some_data)
+# print("prediction:\t",lin_reg.predict(some_data_prepared))
+# print("Labels:\t",list(some_labels))
+
+"""
+    sklearn提供了mean_squared_error函数用于计算回归模型的RMSE
+"""
+from sklearn.metrics import mean_squared_error
+#
+# housing_predictions = lin_reg.predict(housing_prepared)
+# lin_mse = mean_squared_error(housing_labels,housing_predictions)
+# lin_rmse = np.sqrt(lin_mse)
+# print(lin_rmse) # 68628.19819848923 误差值比较大,欠拟合,或者模型选择不当
+
+"""
+    欠拟合的修复方式：
+    选择更好的模型，提供更好的特征，去掉模型上的限制(正则化等,本模型没有应用)。
+"""
+"""
+    2.决策树模型
+    DecisionTreeRegressor
+"""
+from sklearn.tree import DecisionTreeRegressor
+
+# tree_reg = DecisionTreeRegressor()
+# tree_reg.fit(housing_prepared,housing_labels)
+# housing_predictions = tree_reg.predict(housing_prepared)
+# lin_mse = mean_squared_error(housing_labels,housing_predictions)
+# lin_rmse = np.sqrt(lin_mse)
+# print(lin_rmse) #0.0 没有误差可能是完美模型也可能是过拟合
+
+"""
+    使用交叉验证做更好的评估避免过拟合
+    分割训练集得到更小的训练集和验证集,用于训练和验证决策树模型
+    可以使用train_test_split简单分割
+    更好的是使用sklearn提供的交叉验证功能
+"""
+"""
+    K折交叉验证,随机分割训练集成K个子集,成为折,训练K次,每次用一个验证,K-1个训练
+    得到结果评分数组
+    (本例使用K=10)
+"""
+from sklearn.model_selection import cross_val_score
+# scores = cross_val_score(tree_reg,housing_prepared,housing_labels,scoring="neg_mean_squared_error",cv=10)
+# rmse_scores = np.sqrt(-scores)
+# # 决策树模型过拟合严重
+# print(rmse_scores)
+# print(rmse_scores.mean())
+# print(rmse_scores.std())
+
+"""
+   3.随机森林模型
+   通过特征的随机子集训练多个决策树,是集成模型
+"""
+from sklearn.ensemble import RandomForestRegressor
+forest_reg = RandomForestRegressor(n_estimators=100)
+forest_reg.fit(housing_prepared,housing_labels)
+scores = cross_val_score(forest_reg,housing_prepared,housing_labels,scoring="neg_mean_squared_error",cv=10)
+rmse_scores = np.sqrt(-scores)
+# 决策树模型过拟合严重
+print(rmse_scores)
+print(rmse_scores.mean())
+print(rmse_scores.std())
+
+"""
+    保存训练后的模型
+    sklearn提供的joblib
+"""
+from sklearn.externals import joblib
+
+joblib.dump(forest_reg,"my_forest_reg.pkl")
+
+# my_forest_reg = joblib.load("my_forest_reg.pkl") #加载模型
+
+
+"""
+    模型微调
+"""
+"""
+    1.网格搜索
+"""
+
