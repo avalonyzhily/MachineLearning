@@ -404,9 +404,9 @@ forest_reg.fit(housing_prepared,housing_labels)
 scores = cross_val_score(forest_reg,housing_prepared,housing_labels,scoring="neg_mean_squared_error",cv=10)
 rmse_scores = np.sqrt(-scores)
 # 决策树模型过拟合严重
-print(rmse_scores)
-print(rmse_scores.mean())
-print(rmse_scores.std())
+# print(rmse_scores)
+# print(rmse_scores.mean())
+# print(rmse_scores.std())
 
 """
     保存训练后的模型
@@ -421,8 +421,28 @@ joblib.dump(forest_reg,"my_forest_reg.pkl")
 
 """
     模型微调
+    主要是对模型的超参数进行调整(暂时不太清楚超参数的含义,后续学习模型时可以了解)
 """
 """
-    1.网格搜索
+    1.网格搜索 GridSearchCV
+    交叉试验所有可能的超参数组合(穷举,模拟)
 """
+from sklearn.model_selection import GridSearchCV
+param_grid = [
+    {'n_estimators':[3, 10, 30],'max_features':[2, 4, 6, 8]},
+    {'bootstrap':[False],'n_estimators':[3, 10],'max_features':[2, 3, 4]}
+]
 
+forest_reg = RandomForestRegressor()
+grid_search = GridSearchCV(forest_reg, param_grid, cv=5, scoring='neg_mean_squared_error')
+
+grid_search.fit(housing_prepared, housing_labels)
+
+# 提供的组合里面最好的超参数(意思是还有更好的可能没有在提供的组合里)
+print(grid_search.best_params_)
+# 提供的组合里面最好的估计器(同上)
+print(grid_search.best_estimator_)
+# 还可以查看各种组合的评分
+cvres = grid_search.cv_results_
+for mean_score, params in zip(cvres['mean_test_score'], cvres['params']):
+    print(np.sqrt(-mean_score), params)
